@@ -23,18 +23,22 @@ const (
 var LEVELS = []string{"[DEBUG] ", "[INFO] ", "[NOTICE] ", "[WARNING] ", "[ERROR] ", "[FATAL] "}
 
 type Logger struct {
-    logger *log.Logger
-    level  int
-    id     string
+    logger  *log.Logger
+    level   int
+    id      string
+    rotator *Rotator
 }
 
 var loggers map[string]*Logger = make(map[string]*Logger)
 
 type LogBuilder struct {
-    id        string
-    filename  string
-    log_level int
-    flags     int
+    id           string
+    filename     string
+    log_level    int
+    flags        int
+    time_format  string
+    rotate_cycle string
+    keep_time    string
 }
 
 func NewLogBuilder(nid string) *LogBuilder {
@@ -72,6 +76,15 @@ func (lb *LogBuilder) File(fn string) *LogBuilder {
     lb.filename, _ = filepath.Abs(fn)
     return lb
 }
+func (lb *LogBuilder) Rotate(time_format, schedule, keep string) *LogBuilder {
+    if lb.filename == "" {
+        Fatal("Pls specify log file first")
+    }
+    lb.time_format = time_format
+    lb.rotate_cycle = schedule
+    lb.keep_time = keep
+    return lb
+}
 func (lb *LogBuilder) Flags(flg int) *LogBuilder {
     lb.flags = flg
     return lb
@@ -84,6 +97,10 @@ func (lb *LogBuilder) Build() *Logger {
     } else {
         lg := initFileLogger(lb.id, lb.filename, lb.log_level, lb.flags)
         loggers[lb.id] = lg
+        if lb.time_format != "" && lb.rotate_cycle != "" {
+            lg.rotator = NewRotator(lb.filename, lb.time_format, lb.rotate_cycle, lb.keep_time)
+            lg.rotator.Start()
+        }
         return lg
     }
 }
@@ -131,7 +148,7 @@ func initFileLogger(id, filename string, level int, flags int) *Logger {
         }
         defer watcher.Close()
         for {
-            err = watcher.AddWatch(filename, IN_ATTRIB|IN_DELETE_SELF|IN_MOVE)
+            err = watcher.AddWatch(filepath.Dir(filename), IN_DELETE|IN_MOVE)
             if err != nil {
                 fmt.Println(err)
                 return
